@@ -17,9 +17,8 @@ namespace Cysharp.Threading.Tasks.Internal
         bool running = false;
         IPlayerLoopItem[] loopItems = new IPlayerLoopItem[InitialSize];
         MinimumQueue<IPlayerLoopItem> waitQueue = new MinimumQueue<IPlayerLoopItem>(InitialSize);
-
-
-
+        
+        
         public PlayerLoopRunner(PlayerLoopTiming timing)
         {
             this.unhandledExceptionCallback = ex => Debug.LogException(ex);
@@ -153,8 +152,81 @@ namespace Cysharp.Threading.Tasks.Internal
         void LastTimeUpdate() => RunCore();
 #endif
 
-        [System.Diagnostics.DebuggerHidden]
+        //[System.Diagnostics.DebuggerHidden]
         void RunCore()
+        {
+            // COSMIC LOUNGE EDIT:
+            // Execute FixedUpdate queue in an order-preserving fashion.
+            // to ensure that actions complete in the order they were started.
+            //
+            // Execute other queues using existing UniTask implementation.
+            
+            if (this.timing == PlayerLoopTiming.FixedUpdate)
+                RunCore_PreserveOrder();
+            else
+                RunCore_Default();
+        }
+        
+        void RunCore_PreserveOrder()
+        {
+            lock (this.runningAndQueueLock)
+            {
+                this.running = true;
+            }
+
+            lock (this.arrayLock)
+            {
+                for (var i = 0; i < this.tail; i++)
+                {
+                    // Execute action
+                    var action = this.loopItems[i];
+                    if (action != null)
+                    {
+                        try
+                        {
+                            if (!action.MoveNext())
+                                this.loopItems[i] = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            this.loopItems[i] = null;
+                            try
+                            {
+                                this.unhandledExceptionCallback(ex);
+                            }
+                            catch
+                            {
+                            }
+                        }
+                    }
+
+                    // Remove if null
+                    
+                    if (this.loopItems[i] == null)
+                    {
+                        for (int j = i + 1; j <= tail; j++)
+                            this.loopItems[j - 1] = this.loopItems[j];
+                        this.tail--;
+                        i--;
+                    }
+                }
+                lock (this.runningAndQueueLock)
+                {
+                    this.running = false;
+                    while (this.waitQueue.Count != 0)
+                    {
+                        if (this.loopItems.Length == this.tail)
+                        {
+                            Array.Resize(ref loopItems, checked(this.tail * 2));
+                        }
+                        this.loopItems[tail++] = this.waitQueue.Dequeue();
+                    }
+                }
+            }
+        }
+        
+        [System.Diagnostics.DebuggerHidden]
+        void RunCore_Default()
         {
             lock (runningAndQueueLock)
             {
