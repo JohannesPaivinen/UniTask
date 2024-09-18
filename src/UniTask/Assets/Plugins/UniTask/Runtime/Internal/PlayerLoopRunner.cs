@@ -205,8 +205,9 @@ namespace Cysharp.Threading.Tasks.Internal
                     
                     if (loopItems[i] == null)
                     {
-                        for (int j = i + 1; j <= tail; j++)
+                        for (int j = i + 1; j < tail; j++)
                             loopItems[j - 1] = loopItems[j];
+                        this.loopItems[tail - 1] = null;
                         tail--;
                         i--;
                     }
