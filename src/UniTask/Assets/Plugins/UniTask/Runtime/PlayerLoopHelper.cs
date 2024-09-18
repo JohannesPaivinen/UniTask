@@ -514,6 +514,16 @@ namespace Cysharp.Threading.Tasks
             q.Enqueue(continuation);
         }
 
+        public static void PreserveTaskOrder(PlayerLoopTiming timing, bool preserve)
+        {
+            var runner = runners[(int)timing];
+            if (runner == null)
+            {
+                ThrowInvalidLoopTiming(timing);
+            }
+            runner.PreserveTaskOrder(preserve);
+        }
+
         // Diagnostics helper
 
 #if UNITY_2019_3_OR_NEWER

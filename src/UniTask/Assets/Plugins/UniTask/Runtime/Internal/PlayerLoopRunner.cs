@@ -15,6 +15,8 @@ namespace Cysharp.Threading.Tasks.Internal
 
         int tail = 0;
         bool running = false;
+        bool preserveTaskOrder = false;
+        
         IPlayerLoopItem[] loopItems = new IPlayerLoopItem[InitialSize];
         MinimumQueue<IPlayerLoopItem> waitQueue = new MinimumQueue<IPlayerLoopItem>(InitialSize);
         
@@ -66,6 +68,11 @@ namespace Cysharp.Threading.Tasks.Internal
                 tail = 0;
                 return rest;
             }
+        }
+
+        public void PreserveTaskOrder(bool preserve)
+        {
+            this.preserveTaskOrder = preserve;
         }
 
         // delegate entrypoint.
@@ -155,13 +162,7 @@ namespace Cysharp.Threading.Tasks.Internal
         //[System.Diagnostics.DebuggerHidden]
         void RunCore()
         {
-            // COSMIC LOUNGE EDIT:
-            // Execute FixedUpdate queue in an order-preserving fashion.
-            // to ensure that actions complete in the order they were started.
-            //
-            // Execute other queues using existing UniTask implementation.
-            
-            if (this.timing == PlayerLoopTiming.FixedUpdate)
+            if (preserveTaskOrder)
                 RunCore_PreserveOrder();
             else
                 RunCore_Default();
@@ -169,30 +170,30 @@ namespace Cysharp.Threading.Tasks.Internal
         
         void RunCore_PreserveOrder()
         {
-            lock (this.runningAndQueueLock)
+            lock (runningAndQueueLock)
             {
-                this.running = true;
+                running = true;
             }
 
-            lock (this.arrayLock)
+            lock (arrayLock)
             {
-                for (var i = 0; i < this.tail; i++)
+                for (int i = 0; i < tail; i++)
                 {
                     // Execute action
-                    var action = this.loopItems[i];
+                    var action = loopItems[i];
                     if (action != null)
                     {
                         try
                         {
                             if (!action.MoveNext())
-                                this.loopItems[i] = null;
+                                loopItems[i] = null;
                         }
                         catch (Exception ex)
                         {
-                            this.loopItems[i] = null;
+                            loopItems[i] = null;
                             try
                             {
-                                this.unhandledExceptionCallback(ex);
+                                unhandledExceptionCallback(ex);
                             }
                             catch
                             {
@@ -202,24 +203,24 @@ namespace Cysharp.Threading.Tasks.Internal
 
                     // Remove if null
                     
-                    if (this.loopItems[i] == null)
+                    if (loopItems[i] == null)
                     {
                         for (int j = i + 1; j <= tail; j++)
-                            this.loopItems[j - 1] = this.loopItems[j];
-                        this.tail--;
+                            loopItems[j - 1] = loopItems[j];
+                        tail--;
                         i--;
                     }
                 }
-                lock (this.runningAndQueueLock)
+                lock (runningAndQueueLock)
                 {
-                    this.running = false;
-                    while (this.waitQueue.Count != 0)
+                    running = false;
+                    while (waitQueue.Count != 0)
                     {
-                        if (this.loopItems.Length == this.tail)
+                        if (loopItems.Length == tail)
                         {
-                            Array.Resize(ref loopItems, checked(this.tail * 2));
+                            Array.Resize(ref loopItems, checked(tail * 2));
                         }
-                        this.loopItems[tail++] = this.waitQueue.Dequeue();
+                        loopItems[tail++] = waitQueue.Dequeue();
                     }
                 }
             }
